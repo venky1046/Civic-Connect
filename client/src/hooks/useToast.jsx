@@ -1,0 +1,62 @@
+import React, { createContext, useContext, useState, useCallback } from 'react';
+import { CheckCircle2, XCircle, Info, X } from 'lucide-react';
+
+const ToastContext = createContext(null);
+
+let idCounter = 0;
+
+export function ToastProvider({ children }) {
+  const [toasts, setToasts] = useState([]);
+
+  const remove = useCallback((id) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const push = useCallback(
+    (message, type = 'info') => {
+      const id = ++idCounter;
+      setToasts((prev) => [...prev, { id, message, type }]);
+      setTimeout(() => remove(id), 4500);
+    },
+    [remove]
+  );
+
+  const toast = {
+    success: (msg) => push(msg, 'success'),
+    error: (msg) => push(msg, 'error'),
+    info: (msg) => push(msg, 'info'),
+  };
+
+  const icons = {
+    success: <CheckCircle2 size={18} className="text-teal-600" />,
+    error: <XCircle size={18} className="text-red-600" />,
+    info: <Info size={18} className="text-navy-600" />,
+  };
+
+  return (
+    <ToastContext.Provider value={toast}>
+      {children}
+      <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 w-[calc(100%-2rem)] max-w-sm">
+        {toasts.map((t) => (
+          <div
+            key={t.id}
+            className="card flex items-start gap-3 px-4 py-3 animate-[fadeIn_0.2s_ease-out]"
+            role="status"
+          >
+            {icons[t.type]}
+            <p className="text-sm text-ink-700 flex-1">{t.message}</p>
+            <button onClick={() => remove(t.id)} aria-label="Dismiss notification">
+              <X size={16} className="text-ink-400 hover:text-ink-700" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </ToastContext.Provider>
+  );
+}
+
+export function useToast() {
+  const ctx = useContext(ToastContext);
+  if (!ctx) throw new Error('useToast must be used within ToastProvider');
+  return ctx;
+}
