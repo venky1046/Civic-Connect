@@ -1,66 +1,59 @@
-const nodemailer = require('nodemailer');
-const path = require('path');
-
-let transporter = null;
-
-function getTransporter() {
-  if (transporter) return transporter;
-
-  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
-    console.warn(
-      '[mailer] EMAIL_USER / EMAIL_PASSWORD not set. Emails will be logged, not sent.'
-    );
-    return null;
-  }
-
-  transporter = nodemailer.createTransport({
-    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-    port: Number(process.env.EMAIL_PORT) || 587,
-    secure: Number(process.env.EMAIL_PORT) === 465,
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASSWORD,
-    },
-  });
-  return transporter;
-}
-
-/**
- * Sends an email. If SMTP credentials are not configured, logs the email
- * to the console instead of throwing, so the rest of the app flow (which
- * must never fail just because email delivery failed) keeps working.
- * Returns { sent: boolean, error?: string }
- */
+const fs = require("fs");
+const path = require("path");
+const BREVO_API_KEY = process.env.BREVO_API_KEY;
+const BREVO_SENDER_EMAIL = process.env.BREVO_SENDER_EMAIL;
+const BREVO_SENDER_NAME = process.env.BREVO_SENDER_NAME || "Civic Connect";
 async function sendMail({ to, subject, html, attachments }) {
-  const t = getTransporter();
-  if (!t) {
+  if (!BREVO_API_KEY || !BREVO_SENDER_EMAIL) {
     console.log(`[mailer:DRY-RUN] To: ${to} | Subject: ${subject}`);
-    return { sent: false, error: 'Email transport not configured' };
+    return {
+      sent: false,
+      error: "Brevo API key / sender email not configured",
+    };
   }
-
+  const body = {
+    sender: { name: BREVO_SENDER_NAME, email: BREVO_SENDER_EMAIL },
+    to: [{ email: to }],
+    subject,
+    htmlContent: html,
+  };
+  if (attachments && attachments.length > 0) {
+    try {
+      body.attachment = attachments.map((a) => ({
+        name: a.filename,
+        content: fs.readFileSync(a.path).toString("base64"),
+      }));
+    } catch (err) {
+      console.error("[mailer] Failed to read attachment:", err.message);
+    }
+  }
   try {
-    await t.sendMail({
-      from: `"Civic Connect" <${process.env.EMAIL_USER}>`,
-      to,
-      subject,
-      html,
-      attachments,
+    const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: {
+        "api-key": BREVO_API_KEY,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(body),
     });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Brevo API responded ${res.status}: ${errText}`);
+    }
     return { sent: true };
   } catch (err) {
-    console.error('[mailer] Failed to send email:', err.message);
+    console.error("[mailer] Failed to send email:", err.message);
     return { sent: false, error: err.message };
   }
 }
-
 function imageAttachment(imagePath) {
   if (!imagePath) return [];
   return [
     {
       filename: path.basename(imagePath),
-      path: path.join(__dirname, '..', imagePath),
+      path: path.join(__dirname, "..", imagePath),
     },
   ];
 }
-
 module.exports = { sendMail, imageAttachment };
